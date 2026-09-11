@@ -28,13 +28,17 @@ MIT-0 (see LICENSE file)
     * PNG - non-interlaced (from stb_image documentation)
     * JPG - JPEG baseline (from stb_image documentation)
     * TGA - greyscale or RGB or RGBA or indexed, uncompressed or RLE
-    * DDS - BC1/BC2/BC3/BC3n/BC5u, cubemaps (see `DDS support` below)
+    * DDS - common uncompressed DXGI formats, BC1/BC2/BC3/BC3n/BC5u/BC6H_UF16,
+      and high-precision formats,
+      including cubemaps (see `DDS support` below)
     * PSD - (from stb_image documentation)
     * [QOI](https://github.com/phoboslab/qoi)
-    * HDR - converted to LDR, unless loaded with *HDR* functions (RGBE or RGBdivA or RGBdivA2)
+    * HDR - converted to LDR by generic loaders; dedicated HDR loaders support either 8-bit
+      RGBE/RGBdivA encodings or native RGB16F/RGB32F OpenGL textures
     * GIF
     * PIC
-    * PKM ( ETC1 )
+    * PKM 1.0/2.0 (ETC1, ETC2, and EAC decoding and direct upload)
+    * ASTC (direct 2D LDR upload)
     * PVR ( PVRTC )
 
 * Writeable Image Formats:
@@ -72,11 +76,90 @@ Can take a single image file where width = 6*height (or vice versa), split it in
 **DDS support**
 -------------
 
-* BC1 - Compress, decompress, direct GPU upload (a.k.a. DXT1)
-* BC2 - decompress, direct GPU upload (a.k.a. DXT2, DXT3)
-* BC3 - Compress, decompress, direct GPU upload (a.k.a. DXT4, DXT5)
+* BC1 UNORM and sRGB - Compress, decompress, direct GPU upload (a.k.a. DXT1)
+* BC2 UNORM and sRGB - decompress, direct GPU upload (a.k.a. DXT2, DXT3)
+* BC3 UNORM and sRGB - Compress, decompress, direct GPU upload (a.k.a. DXT4, DXT5)
 * BC3n - direct GPU upload
-* BC5u - direct GPU upload (a.k.a. 3Dc, ATI2, RGTC2)
+* BC4 UNORM and SNORM - direct GPU upload (a.k.a. ATI1, BC4U, BC4S, RGTC1)
+* BC5 UNORM and SNORM - direct GPU upload (a.k.a. 3Dc, ATI2, BC5S, RGTC2)
+* BC6H UF16 and SF16 - direct GPU upload (requires OpenGL BPTC texture compression support). BC6H stores
+  linear HDR values, so displaying it directly in a normalized framebuffer requires exposure and
+  tone mapping in the application's shader.
+* BC7 UNORM and sRGB - direct GPU upload (requires OpenGL BPTC texture compression support)
+* RGBA8 and BGRA8 UNORM and sRGB - direct GPU upload
+* R8 and RG8 UNORM and SNORM - direct GPU upload
+* R16 and RG16 UNORM - direct GPU upload
+* R16, RG16, R32, and RG32 FLOAT - direct GPU upload
+* R10G10B10A2 UNORM and R11G11B10 FLOAT - direct GPU upload
+* RGBA16 UNORM - direct GPU upload (DX10 and legacy D3DFMT_A16B16G16R16 DDS)
+* RGBA16 FLOAT - direct GPU upload (DX10 and legacy D3DFMT_A16B16G16R16F DDS)
+* RGBA32 FLOAT - direct GPU upload (DX10 and legacy D3DFMT_A32B32G32R32F DDS)
+
+Direct DDS upload supports 2D textures and cubemaps. DDS texture arrays and volume textures are not
+currently loaded directly. Uncompressed DX10 uploads respect the top-level DDS row pitch and repack
+padded rows before passing them to OpenGL.
+
+The `bin/test_*.dds` fixtures use procedural gradients and checkerboards created by SOIL2's
+`soil2_generate_dds_fixtures` test utility; they do not contain third-party image content. Pass the
+output directory as its first argument to regenerate them. Creating all compressed fixtures requires
+an OpenGL driver with S3TC, RGTC, and BPTC support. Run
+`bin/soil2-dds-test-release bin` to validate their direct upload and GPU readback.
+
+**Native HDR texture support**
+------------------------------
+
+`SOIL_load_OGL_HDR_texture_f32()` and
+`SOIL_load_OGL_HDR_texture_f32_from_memory()` decode Radiance HDR images to linear
+32-bit float RGB and upload them with `GL_FLOAT`. The caller selects
+`SOIL_HDR_TEXTURE_RGB16F` or `SOIL_HDR_TEXTURE_RGB32F` for GPU storage.
+
+Six-file and six-buffer cubemaps are supported by
+`SOIL_load_OGL_HDR_cubemap_f32()` and
+`SOIL_load_OGL_HDR_cubemap_f32_from_memory()`. Cubemap faces must be square and
+have identical dimensions.
+
+The native HDR loaders support power-of-two resizing, float-preserving mipmaps,
+vertical flipping, and repeat/clamp texture parameters. Byte-oriented transforms
+such as DXT compression, NTSC clamping, alpha multiplication, YCoCg conversion,
+and sRGB storage are rejected. Applications must apply exposure and tone mapping
+when rendering these linear HDR textures.
+
+**Mobile compressed texture support**
+-------------------------------------
+
+`SOIL_direct_load_PKM()` and `SOIL_direct_load_PKM_from_memory()` directly
+upload PKM 1.0 ETC1 and PKM 2.0 ETC2/EAC textures when the active OpenGL
+context supports their compression formats. Supported PKM 2.0 formats are
+ETC2 RGB8, RGB8A1, and RGBA8, plus signed and unsigned EAC R11 and RG11.
+The existing `SOIL_direct_load_ETC1()` APIs remain compatibility wrappers.
+
+Generic SOIL image loading also decodes these PKM formats on the CPU. EAC R11
+is returned as one grayscale channel. EAC RG11 is returned as RGB `(R, G, 0)`
+because stb_image defines two-channel images as luminance-alpha. Signed EAC
+values are mapped from `[-1, 1]` to unsigned bytes in `[0, 255]`.
+
+`SOIL_direct_load_ASTC()` and `SOIL_direct_load_ASTC_from_memory()` directly
+upload standalone 2D LDR ASTC files for every standard block footprint from
+4x4 through 12x12. Use `SOIL_FLAG_SRGB_COLOR_SPACE` to request sRGB storage;
+the standalone ASTC header does not contain color-space metadata.
+
+The ASTC direct loader does not decode or transcode. PKM and standalone ASTC
+files contain one 2D image without mipmaps, cubemap faces, texture-array
+layers, or orientation metadata. Unsupported direct GPU formats fail with a
+descriptive error; PKM files can then use the CPU decoding path.
+The project-owned fixtures in `bin/mobile` are generated by
+`soil2-generate-mobile-compressed-fixtures`.
+
+`bin/test_native_hdr.hdr` is a project-owned procedural fixture generated by
+`soil2_generate_dds_fixtures`.
+
+The base graphical test can display the fixture with tone mapping:
+
+```sh
+bin/soil2-test-release bin/test_native_hdr.hdr
+```
+
+Use `+`/`-` or the Up/Down arrow keys to adjust exposure.
 
 **Difference between SOIL2 and SOIL:**
 --------------------------------------
@@ -92,11 +175,16 @@ Can take a single image file where width = 6*height (or vice versa), split it in
 
 * `SOIL_create_OGL_texture` expects width and height parameters as pointers, since the real size of the texture loaded could change. This occurs when GL_ARB_texture_non_power_of_two extension is not present and the user tries to load a non-power of two texture.
 
-* Added support for PVRTC and ETC1 ( PKM format ) direct loading and decoding as fallback method if the GPU doesn't support the texture compression method. With the following new functions exposed:
+* Added direct loading for PVRTC, PKM 1.0/2.0 ETC1/ETC2/EAC, and standalone
+  2D LDR ASTC textures. The exposed direct-loading functions include:
     * `SOIL_direct_load_PVR`
     * `SOIL_direct_load_PVR_from_memory`
+    * `SOIL_direct_load_PKM`
+    * `SOIL_direct_load_PKM_from_memory`
     * `SOIL_direct_load_ETC1`
     * `SOIL_direct_load_ETC1_from_memory`
+    * `SOIL_direct_load_ASTC`
+    * `SOIL_direct_load_ASTC_from_memory`
 
 * Added support for glGenerateMipmap if the GPU support it ( and any of its variations, glGenerateMipmapEXT and glGenerateMipmapOES for GLES1 ). Added the flag SOIL_FLAG_GL_MIPMAPS to request GL mipmaps instead of the internal mipmap creation provided by SOIL2.
 
@@ -116,7 +204,7 @@ To generate project files you will need to [download and install](https://premak
 
 Then you can generate the static library for your platform just going to the project directory where the premake4.lua file is located and then execute:
 
-`premake5 gmake2` to generate project Makefiles, then `cd make/*YOURPLATFORM*/`, and finally `make` or `make config=release_x86_64` ( it will generate the static lib, the shared lib and the test application ).
+`premake5 gmake2` to generate project Makefiles, then `cd make/*YOURPLATFORM*/`, and finally `make` or `make config=release_x86_64` or `make config=release_arm64` depending on your architecture ( it will generate the static lib, the shared lib and the test application ).
 
 or
 
@@ -153,6 +241,15 @@ if( 0 == tex_2d )
 {
 	printf( "SOIL loading error: '%s'\n", SOIL_last_result() );
 }
+
+/* preserve a Radiance HDR image as a native half-float GPU texture */
+GLuint hdr_tex = SOIL_load_OGL_HDR_texture_f32
+	(
+		"environment.hdr",
+		SOIL_HDR_TEXTURE_RGB16F,
+		SOIL_CREATE_NEW_ID,
+		SOIL_FLAG_GL_MIPMAPS | SOIL_FLAG_INVERT_Y
+	);
 
 /* load another image, but into the same texture ID, overwriting the last one */
 tex_2d = SOIL_load_OGL_texture

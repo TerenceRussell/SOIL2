@@ -13,6 +13,9 @@
 extern "C" {
 #endif
 
+/** Returns the smallest power of two greater than or equal to value. */
+int image_next_power_of_two( int value );
+
 /**
 	This function upscales an image.
 	Not to be used to create MIPmaps,
@@ -25,6 +28,16 @@ int
 		const unsigned char* const orig,
 		int width, int height, int channels,
 		unsigned char* resampled,
+		int resampled_width, int resampled_height
+	);
+
+/** Bilinear resize for floating-point image data. */
+int
+	resize_image_f32
+	(
+		const float* const orig,
+		int width, int height, int channels,
+		float* resampled,
 		int resampled_width, int resampled_height
 	);
 
@@ -84,7 +97,10 @@ int
 
 /**
 	Converts an HDR image from an array
-	of unsigned chars (RGBE) to RGBdivA
+	of unsigned chars (RGBE) to RGBdivA.
+	If rescale_to_max is non-zero, one global scale is applied so the
+	largest decoded RGB component in the image uses the representation's
+	available range.
 	\return 0 if failed, otherwise returns 1
 **/
 int
@@ -97,7 +113,10 @@ int
 
 /**
 	Converts an HDR image from an array
-	of unsigned chars (RGBE) to RGBdivA2
+	of unsigned chars (RGBE) to RGBdivA2.
+	If rescale_to_max is non-zero, one global scale is applied so the
+	largest decoded RGB component in the image uses the representation's
+	available range.
 	\return 0 if failed, otherwise returns 1
 **/
 int

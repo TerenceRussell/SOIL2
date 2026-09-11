@@ -52,7 +52,7 @@ function download_and_extract_dependencies()
 		print("Downloading: " .. remote_sdl2_devel_vc_url)
 		local dest_dir = "./"
 		local local_file = dest_dir .. remote_sdl2_version .. ".zip"
-		local result_str, response_code = http.download(remote_sdl2_devel_vc_url, local_file)
+		local _, response_code = http.download(remote_sdl2_devel_vc_url, local_file)
 		if response_code == 200 then
 			print("Downloaded successfully to: " .. local_file)
 			zip.extract(local_file, dest_dir)
@@ -62,7 +62,7 @@ function download_and_extract_dependencies()
 				print("Failed to copy SDL2.dll.")
 			end
 		else
-			print("Failed to download:  " .. remote_sdl2_rul)
+			print("Failed to download:  " .. remote_sdl2_devel_vc_url)
 			exit(1)
 		end
 	end
@@ -72,7 +72,7 @@ workspace "SOIL2"
 	location("./make/" .. os.target() .. "/")
 	targetdir("./bin")
 	configurations { "debug", "release" }
-	platforms { "x86_64", "x86" }
+	platforms { "x86_64", "x86", "arm64" }
 	download_and_extract_dependencies()
 	objdir("obj/" .. os.target() .. "/")
 
@@ -85,18 +85,27 @@ workspace "SOIL2"
 
 	filter "platforms:x86_64"
 		architecture "x86_64"
+		vectorextensions "SSE2"
+
+	filter "platforms:arm64"
+		architecture "ARM64"
+
+	filter { "platforms:arm64", "system:macosx" }
+		architecture "ARM64"
+		buildoptions { "-arch arm64" }
+		linkoptions { "-arch arm64" }
 
 	project "soil2-static-lib"
 		kind "StaticLib"
+		language "C"
 		targetdir("lib/" .. os.target() .. "/")
 		files { "src/SOIL2/*.c" }
 
 		filter "action:vs*"
-			buildoptions { "/TP" }
+			cdialect "C11"
 			defines { "_CRT_SECURE_NO_WARNINGS" }
 
 		filter "action:not vs*"
-			language "C"
 			buildoptions { "-Wall" }
 
 		filter "configurations:debug"
@@ -114,17 +123,17 @@ workspace "SOIL2"
 
 	project "soil2-shared-lib"
 		kind "SharedLib"
+		language "C"
 
 		targetdir("lib/" .. os.target() .. "/")
 		files { "src/SOIL2/*.c" }
 
 		filter "action:vs*"
-			buildoptions { "/TP" }
+			cdialect "C11"
 			defines { "_CRT_SECURE_NO_WARNINGS" }
 
 		filter { "system:windows", "action:not vs*" }
 			links { "mingw32" }
-			vectorextensions "SSE2"
 			defines { "STBI_MINGW_ENABLE_SSE2" }
 
 		filter "system:windows"
@@ -146,7 +155,6 @@ workspace "SOIL2"
 			links {"GL"}
 
 		filter "action:not vs*"
-			language "C"
 			buildoptions { "-Wall" }
 
 		filter "configurations:debug"
@@ -163,7 +171,7 @@ workspace "SOIL2"
 		kind "ConsoleApp"
 		language "C++"
 		links { "soil2-static-lib" }
-		files { "src/test/*.cpp", "src/common/*.cpp" }
+		files { "src/test/test_SOIL2.cpp", "src/common/*.cpp" }
 
 		filter { "system:windows", "action:not vs*" }
 			links { "mingw32" }
@@ -192,7 +200,6 @@ workspace "SOIL2"
 
 		filter "action:not vs*"
 			buildoptions { "-Wall" }
-			vectorextensions "SSE2"
 			defines { "STBI_MINGW_ENABLE_SSE2" }
 
 		filter "configurations:debug"
@@ -222,7 +229,6 @@ workspace "SOIL2"
 
 		filter { "system:windows", "action:not vs*" }
 			links { "mingw32" }
-			vectorextensions "SSE2"
 			defines { "STBI_MINGW_ENABLE_SSE2" }
 
 		filter "system:windows"
@@ -268,3 +274,288 @@ workspace "SOIL2"
 
 		filter { "options:windows-vc-build", "system:windows" }
 			incdirs { "./" .. remote_sdl2_version .. "/include" }
+
+	project "soil2-generate-dds-fixtures"
+		kind "ConsoleApp"
+		language "C++"
+		files { "src/test/generate_DDS_fixtures.cpp" }
+
+		filter { "system:windows", "action:not vs*" }
+			links { "mingw32" }
+
+		filter "system:windows"
+			links {"opengl32","SDL2main","SDL2"}
+			defines { "_CRT_SECURE_NO_WARNINGS" }
+
+		filter "system:linux"
+			links {"GL","SDL2"}
+
+		filter "system:macosx"
+			links { "OpenGL.framework", "CoreFoundation.framework", get_backend_link_name("SDL2") }
+			buildoptions {"-F /Library/Frameworks"}
+			linkoptions {"-F /Library/Frameworks"}
+			includedirs { "/Library/Frameworks/SDL2.framework/Headers" }
+			defines { "GL_SILENCE_DEPRECATION" }
+			if not _OPTIONS["use-frameworks"] then
+				defines { "SOIL2_NO_FRAMEWORKS" }
+			end
+
+		filter "system:haiku"
+			links {"GL","SDL2"}
+
+		filter "system:bsd"
+			links {"GL","SDL2"}
+
+		filter "action:not vs*"
+			buildoptions { "-Wall" }
+
+		filter "configurations:debug"
+			defines { "DEBUG" }
+			symbols "On"
+			targetname "soil2-generate-dds-fixtures-debug"
+
+		filter "configurations:release"
+			defines { "NDEBUG" }
+			optimize "On"
+			targetname "soil2-generate-dds-fixtures-release"
+
+		filter { "options:windows-vc-build", "system:windows", "platforms:x86" }
+			syslibdirs { "./" .. remote_sdl2_version .."/lib/x86" }
+
+		filter { "options:windows-vc-build", "system:windows", "platforms:x86_64" }
+			syslibdirs { "./" .. remote_sdl2_version .."/lib/x64" }
+
+		filter { "options:windows-vc-build", "system:windows" }
+			incdirs { "./" .. remote_sdl2_version .. "/include" }
+
+	project "soil2-generate-mobile-compressed-fixtures"
+		kind "ConsoleApp"
+		language "C++"
+		files { "src/test/generate_mobile_compressed_fixtures.cpp" }
+
+		filter "action:not vs*"
+			buildoptions { "-Wall" }
+
+		filter "configurations:debug"
+			defines { "DEBUG" }
+			symbols "On"
+			targetname "soil2-generate-mobile-compressed-fixtures-debug"
+
+		filter "configurations:release"
+			defines { "NDEBUG" }
+			optimize "On"
+			targetname "soil2-generate-mobile-compressed-fixtures-release"
+
+	project "soil2-hdr-test"
+		kind "ConsoleApp"
+		language "C++"
+		links { "soil2-static-lib" }
+		files { "src/test/test_HDR.cpp" }
+
+		filter { "system:windows", "action:not vs*" }
+			links { "mingw32" }
+
+		filter "system:windows"
+			links { "opengl32", "SDL2main", "SDL2" }
+
+		filter "system:linux"
+			links { "GL", "SDL2" }
+
+		filter "system:macosx"
+			links { "OpenGL.framework", "CoreFoundation.framework", get_backend_link_name("SDL2") }
+			buildoptions { "-F /Library/Frameworks" }
+			linkoptions { "-F /Library/Frameworks" }
+			includedirs { "/Library/Frameworks/SDL2.framework/Headers" }
+			defines { "GL_SILENCE_DEPRECATION" }
+			if not _OPTIONS["use-frameworks"] then
+				defines { "SOIL2_NO_FRAMEWORKS" }
+			end
+
+		filter "system:haiku"
+			links { "GL", "SDL2" }
+
+		filter "system:bsd"
+			links { "GL", "SDL2" }
+
+		filter "action:not vs*"
+			buildoptions { "-Wall" }
+
+		filter "configurations:debug"
+			defines { "DEBUG" }
+			symbols "On"
+			targetname "soil2-hdr-test-debug"
+
+		filter "configurations:release"
+			defines { "NDEBUG" }
+			optimize "On"
+			targetname "soil2-hdr-test-release"
+
+		filter { "options:windows-vc-build", "system:windows", "platforms:x86" }
+			syslibdirs { "./" .. remote_sdl2_version .. "/lib/x86" }
+
+		filter { "options:windows-vc-build", "system:windows", "platforms:x86_64" }
+			syslibdirs { "./" .. remote_sdl2_version .. "/lib/x64" }
+
+		filter { "options:windows-vc-build", "system:windows" }
+			incdirs { "./" .. remote_sdl2_version .. "/include" }
+
+	project "soil2-dds-test"
+		kind "ConsoleApp"
+		language "C++"
+		links { "soil2-static-lib" }
+		files { "src/test/test_DDS.cpp" }
+
+		filter { "system:windows", "action:not vs*" }
+			links { "mingw32" }
+
+		filter "system:windows"
+			links { "opengl32", "SDL2main", "SDL2" }
+
+		filter "system:linux"
+			links { "GL", "SDL2" }
+
+		filter "system:macosx"
+			links { "OpenGL.framework", "CoreFoundation.framework", get_backend_link_name("SDL2") }
+			buildoptions { "-F /Library/Frameworks" }
+			linkoptions { "-F /Library/Frameworks" }
+			includedirs { "/Library/Frameworks/SDL2.framework/Headers" }
+			defines { "GL_SILENCE_DEPRECATION" }
+			if not _OPTIONS["use-frameworks"] then
+				defines { "SOIL2_NO_FRAMEWORKS" }
+			end
+
+		filter "system:haiku"
+			links { "GL", "SDL2" }
+
+		filter "system:bsd"
+			links { "GL", "SDL2" }
+
+		filter "action:not vs*"
+			buildoptions { "-Wall" }
+
+		filter "configurations:debug"
+			defines { "DEBUG" }
+			symbols "On"
+			targetname "soil2-dds-test-debug"
+
+		filter "configurations:release"
+			defines { "NDEBUG" }
+			optimize "On"
+			targetname "soil2-dds-test-release"
+
+		filter { "options:windows-vc-build", "system:windows", "platforms:x86" }
+			syslibdirs { "./" .. remote_sdl2_version .. "/lib/x86" }
+
+		filter { "options:windows-vc-build", "system:windows", "platforms:x86_64" }
+			syslibdirs { "./" .. remote_sdl2_version .. "/lib/x64" }
+
+		filter { "options:windows-vc-build", "system:windows" }
+			incdirs { "./" .. remote_sdl2_version .. "/include" }
+
+	project "soil2-mobile-compressed-test"
+		kind "ConsoleApp"
+		language "C++"
+		links { "soil2-static-lib" }
+		files { "src/test/test_MobileCompressed.cpp" }
+
+		filter { "system:windows", "action:not vs*" }
+			links { "mingw32" }
+
+		filter "system:windows"
+			links { "opengl32", "SDL2main", "SDL2" }
+
+		filter "system:linux"
+			links { "GL", "SDL2" }
+
+		filter "system:macosx"
+			links { "OpenGL.framework", "CoreFoundation.framework", get_backend_link_name("SDL2") }
+			buildoptions { "-F /Library/Frameworks" }
+			linkoptions { "-F /Library/Frameworks" }
+			includedirs { "/Library/Frameworks/SDL2.framework/Headers" }
+			defines { "GL_SILENCE_DEPRECATION" }
+			if not _OPTIONS["use-frameworks"] then
+				defines { "SOIL2_NO_FRAMEWORKS" }
+			end
+
+		filter "system:haiku"
+			links { "GL", "SDL2" }
+
+		filter "system:bsd"
+			links { "GL", "SDL2" }
+
+		filter "action:not vs*"
+			buildoptions { "-Wall" }
+
+		filter "configurations:debug"
+			defines { "DEBUG" }
+			symbols "On"
+			targetname "soil2-mobile-compressed-test-debug"
+
+		filter "configurations:release"
+			defines { "NDEBUG" }
+			optimize "On"
+			targetname "soil2-mobile-compressed-test-release"
+
+		filter { "options:windows-vc-build", "system:windows", "platforms:x86" }
+			syslibdirs { "./" .. remote_sdl2_version .. "/lib/x86" }
+
+		filter { "options:windows-vc-build", "system:windows", "platforms:x86_64" }
+			syslibdirs { "./" .. remote_sdl2_version .. "/lib/x64" }
+
+		filter { "options:windows-vc-build", "system:windows" }
+			incdirs { "./" .. remote_sdl2_version .. "/include" }
+
+
+    project "soil2-grid-atlas-test"
+        kind "ConsoleApp"
+        language "C++"
+        links { "soil2-static-lib" }
+        files { "src/test/test_Grid.cpp", "src/common/common.cpp" }
+
+        filter { "system:windows", "action:not vs*" }
+            links { "mingw32" }
+
+        filter "system:windows"
+            links {"opengl32","SDL2main","SDL2"}
+
+        filter "system:linux"
+            links {"GL","SDL2"}
+
+        filter "system:macosx"
+            links { "OpenGL.framework", "CoreFoundation.framework", get_backend_link_name("SDL2") }
+            buildoptions {"-F /Library/Frameworks"}
+            linkoptions {"-F /Library/Frameworks"}
+            includedirs { "/Library/Frameworks/SDL2.framework/Headers" }
+            defines { "GL_SILENCE_DEPRECATION" }
+            if not _OPTIONS["use-frameworks"] then
+                defines { "SOIL2_NO_FRAMEWORKS" }
+            end
+
+        filter "system:haiku"
+            links {"GL","SDL2"}
+
+        filter "system:bsd"
+            links {"GL","SDL2"}
+
+        filter "action:not vs*"
+            buildoptions { "-Wall" }
+            defines { "STBI_MINGW_ENABLE_SSE2" }
+
+        filter "configurations:debug"
+            defines { "DEBUG" }
+            symbols "On"
+            targetname "soil2-grid-atlas-test-debug"
+
+        filter "configurations:release"
+            defines { "NDEBUG" }
+            optimize "On"
+            targetname "soil2-grid-atlas-test-release"
+
+        filter { "options:windows-vc-build", "system:windows", "platforms:x86" }
+            syslibdirs { "./" .. remote_sdl2_version .."/lib/x86" }
+
+        filter { "options:windows-vc-build", "system:windows", "platforms:x86_64" }
+            syslibdirs { "./" .. remote_sdl2_version .."/lib/x64" }
+
+        filter { "options:windows-vc-build", "system:windows" }
+            incdirs { "./" .. remote_sdl2_version .. "/include" }
